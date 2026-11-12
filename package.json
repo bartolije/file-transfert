@@ -1,7 +1,7 @@
 {
   "name": "file-transfert",
   "productName": "File Transfert",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Client FTP / SFTP / S3 pour macOS qui reprend les favoris Cyberduck",
   "license": "MIT",
   "private": true,
@@ -14,7 +14,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test test.js",
-    "app": "electron-packager . \"File Transfert\" --platform=darwin --arch=arm64 --out=dist --overwrite --ignore=\"^/(dist|scripts|\\.github|\\.githooks|test\\.js)\""
+    "app": "electron-packager . \"File Transfert\" --platform=darwin --arch=arm64 --out=dist --overwrite --app-bundle-id=io.github.bartolije.file-transfert --ignore=\"^/(dist|scripts|\\.github|\\.githooks|test\\.js)\""
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1167.0",
