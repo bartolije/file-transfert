@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuse le commit si un secret ou une donnée personnelle est indexé (voir scripts/garde-fou.js).
+exec node "$(git rev-parse --show-toplevel)/scripts/garde-fou.js" staged

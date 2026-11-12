@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.zip
+*.sig
+*.pem
+*.p12
+*.duck
+.env*
+.DS_Store

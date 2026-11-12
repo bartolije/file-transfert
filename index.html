@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+<title>File Transfert</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #69707d; --line: #e2e5ea;
+    --accent: #2f6fd6; --accent-text: #ffffff; --sel: #dce8fb; --danger: #c43c3c; --ok: #2e8b57; --warn: #b7791f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16181d; --panel: #1e2128; --text: #e6e8ec; --muted: #9aa1ad; --line: #30343d;
+      --accent: #5b93f0; --sel: #26354f; --danger: #ef6b6b; --ok: #5cc48c; --warn: #e0a84a; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { display: grid; grid-template-columns: 240px 1fr; background: var(--bg); color: var(--text);
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); overflow: auto; }
+  aside h1 { font-size: 13px; margin: 0; padding: 14px 14px 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  #bookmarks { list-style: none; margin: 0; padding: 0 6px 12px; }
+  #bookmarks button { all: unset; display: block; width: 100%; box-sizing: border-box; padding: 7px 8px; border-radius: 6px; cursor: default; }
+  #bookmarks button:hover { background: var(--bg); }
+  #bookmarks button[aria-current="true"] { background: var(--accent); color: var(--accent-text); }
+  #bookmarks button:focus-visible { outline: 2px solid var(--accent); }
+  #bookmarks small { display: block; opacity: .75; font-size: 11px; }
+  .proto { display: inline-block; min-width: 34px; font-size: 10px; font-weight: 600; padding: 1px 4px; margin-right: 6px; border-radius: 4px; border: 1px solid currentColor; text-align: center; opacity: .8; }
+  main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100vh; }
+  .toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  .toolbar input#path { flex: 1; min-width: 200px; }
+  input, button { font: inherit; color: inherit; }
+  input[type=text], input:not([type]), input[type=number], input[type=password] { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+  button { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  label { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+  #notice { padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  #update { display: flex; gap: 12px; align-items: center; padding: 8px 12px; background: var(--sel); border-bottom: 1px solid var(--line); }
+  #update[hidden] { display: none; }
+  #notice.error { color: var(--danger); }
+  .table-wrap { flex: 1; overflow: auto; min-height: 0; position: relative; }
+  .table-wrap.drop { outline: 3px dashed var(--accent); outline-offset: -6px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600; border-bottom: 1px solid var(--line); padding: 0; }
+  th button { all: unset; display: block; width: 100%; box-sizing: border-box; padding: 7px 12px; cursor: default; }
+  th button:focus-visible { outline: 2px solid var(--accent); }
+  td { padding: 5px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 0; }
+  td:nth-child(1) { width: 60%; } td:nth-child(2) { width: 12%; text-align: right; font-variant-numeric: tabular-nums; } td:nth-child(3) { width: 28%; color: var(--muted); }
+  th:nth-child(2) button { text-align: right; }
+  tbody tr { user-select: none; }
+  tbody tr[aria-selected="true"] { background: var(--sel); }
+  tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .ico { display: inline-block; width: 1.4em; }
+  .empty { padding: 24px; color: var(--muted); text-align: center; }
+  #transfers { border-top: 1px solid var(--line); background: var(--panel); max-height: 34vh; display: flex; flex-direction: column; }
+  .tbar { display: flex; gap: 14px; align-items: center; padding: 8px 12px; flex-wrap: wrap; }
+  #limit { width: 64px; }
+  #stats { color: var(--muted); flex: 1; }
+  #queue { list-style: none; margin: 0; padding: 0 12px 8px; overflow: auto; min-height: 0; }
+  #queue li { display: grid; grid-template-columns: 1.2em 1fr 220px; gap: 8px; align-items: center; padding: 3px 0; }
+  #queue li.err { grid-template-columns: 1.2em 1fr; color: var(--danger); }
+  #queue .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  progress { width: 100%; }
+  dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); max-width: 680px; width: 90vw; }
+  dialog::backdrop { background: rgb(0 0 0 / .35); }
+  dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; margin: 14px 0 0; }
+  .verdict { font-size: 15px; font-weight: 600; padding: 10px 12px; border-radius: 8px; border: 1px solid currentColor; }
+  .verdict.pub { color: var(--danger); } .verdict.priv { color: var(--ok); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 14px 0 0; }
+  dt { color: var(--muted); } dd { margin: 0; white-space: pre-wrap; word-break: break-all; }
+  code { font-size: 12px; word-break: break-all; }
+</style>
+</head>
+<body>
+<aside>
+  <h1>Favoris Cyberduck</h1>
+  <ul id="bookmarks"></ul>
+  <button id="import" style="margin: 0 12px 14px">Réimporter depuis Cyberduck</button>
+</aside>
+<main>
+  <div id="update" role="status" hidden><span id="updateText"></span> <button id="updateBtn" class="primary">Installer et relancer</button></div>
+  <header class="toolbar">
+    <button id="up" title="Dossier parent (⌫)" aria-label="Dossier parent" disabled>↑</button>
+    <input id="path" aria-label="Chemin" spellcheck="false" disabled>
+    <button id="refresh" disabled>Rafraîchir</button>
+    <label><input type="checkbox" id="foldersFirst" checked> Dossiers en premier</label>
+    <button id="download" class="primary" disabled>Télécharger vers…</button>
+    <button id="upload" disabled>Envoyer…</button>
+    <button id="check" hidden>Accès public ?</button>
+    <button id="terminal" hidden>Terminal SSH</button>
+  </header>
+  <div id="notice" role="status" hidden></div>
+  <div class="table-wrap" id="drop">
+    <table>
+      <thead><tr>
+        <th aria-sort="ascending"><button data-key="name">Nom</button></th>
+        <th><button data-key="size">Taille</button></th>
+        <th><button data-key="mtime">Modifié</button></th>
+      </tr></thead>
+      <tbody id="files"></tbody>
+    </table>
+    <div class="empty" id="empty">Choisir un favori à gauche.</div>
+  </div>
+  <section id="transfers" aria-label="Transferts">
+    <div class="tbar">
+      <label>Transferts en parallèle <input type="number" id="limit" min="1" max="64" value="4"></label>
+      <label><input type="checkbox" id="overwrite"> Écraser les fichiers existants</label>
+      <span id="stats">Aucun transfert</span>
+      <button id="retry" hidden>Relancer les erreurs</button>
+      <button id="clear">Vider la liste</button>
+    </div>
+    <ul id="queue"></ul>
+  </section>
+</main>
+
+<dialog id="pwd">
+  <form method="dialog">
+    <p id="pwdmsg"></p>
+    <input type="password" id="pwdinput" aria-label="Mot de passe" style="width:100%">
+    <menu><button value="cancel">Annuler</button><button value="ok" class="primary">Se connecter</button></menu>
+  </form>
+</dialog>
+
+<dialog id="report">
+  <form method="dialog">
+    <h2 id="rtitle" style="font-size:14px;margin:0 0 10px"></h2>
+    <div id="rverdict" class="verdict"></div>
+    <dl id="rdetails"></dl>
+    <menu><button value="close" class="primary">Fermer</button></menu>
+  </form>
+</dialog>
+
+<script src="sort.js"></script>
+<script src="renderer.js"></script>
+</body>
+</html>
