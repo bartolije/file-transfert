@@ -7,9 +7,12 @@ APP="$1"
 TMP=$(mktemp -d)
 KC="$TMP/signature.keychain-db"
 KCPASS=$(openssl rand -hex 16)
-trap 'security delete-keychain "$KC" 2>/dev/null || true; rm -rf "$TMP"' EXIT
+security list-keychains -d user > "$TMP/liste" # remise en état à la fin : le trousseau temporaire ne reste jamais
+trap 'eval "set -- $(cat "$TMP/liste")"; security list-keychains -d user -s "$@"; security delete-keychain "$KC" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 printf '%s' "$MACOS_SIGNING_P12" | base64 --decode > "$TMP/cert.p12"
 security create-keychain -p "$KCPASS" "$KC"
+eval "set -- $(cat "$TMP/liste")"
+security list-keychains -d user -s "$KC" "$@" # codesign ne trouve l'identité que dans un trousseau de la liste de recherche
 security unlock-keychain -p "$KCPASS" "$KC"
 security import "$TMP/cert.p12" -k "$KC" -P "$MACOS_SIGNING_PASSWORD" -T /usr/bin/codesign >/dev/null
 security set-key-partition-list -S apple-tool:,apple: -s -k "$KCPASS" "$KC" >/dev/null
