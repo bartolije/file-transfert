@@ -16,6 +16,7 @@ let selected = new Set()
 let anchor = null
 let refreshAfterTransfers = false
 let wasBusy = false
+let emptyText = null // message à la place de la liste (connexion en cours ou impossible)
 
 const errMsg = e => String(e?.message ?? e).replace(/^Error invoking remote method '[^']+': (\w*Error: )?/, '')
 const joinPath = (dir, name) => (dir === '/' ? '' : dir.replace(/\/$/, '')) + '/' + name
@@ -25,6 +26,14 @@ const fmtSize = n => {
   let i = 0
   while (n >= 1024 && i < units.length - 1) { n /= 1024; i++ }
   return `${i ? n.toFixed(1).replace('.', ',') : n} ${units[i]}`
+}
+const fmtRate = r => (r > 0 ? `${fmtSize(Math.round(r))}/s` : '')
+const fmtDuration = sec => {
+  if (sec == null || !isFinite(sec)) return ''
+  const t = Math.ceil(sec)
+  if (t < 60) return `${t} s`
+  if (t < 3600) return `${Math.floor(t / 60)} min ${String(t % 60).padStart(2, '0')} s`
+  return `${Math.floor(t / 3600)} h ${String(Math.floor((t % 3600) / 60)).padStart(2, '0')} min`
 }
 const fmtDate = ms => (ms ? new Date(ms).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '')
 
@@ -169,13 +178,22 @@ $('editDelete').onclick = async () => {
 }
 $('add').onclick = () => editBookmark(null)
 
+// Changer d'accès vide tout de suite la liste : jamais les dossiers de l'accès précédent sous le nom du nouveau.
 function openBookmark(b) {
   current = b
+  entries = []
+  selected = new Set()
+  anchor = null
+  cwd = b.path || '/'
+  $('path').value = cwd
+  emptyText = `Connexion à ${b.name}…`
   renderBookmarks()
-  for (const id of ['up', 'path', 'refresh', 'upload']) $(id).disabled = false
+  for (const id of ['up', 'path', 'refresh']) $(id).disabled = false
+  $('upload').disabled = true // pas d'envoi tant que la connexion n'est pas établie
   $('check').hidden = b.protocol !== 's3'
   $('terminal').hidden = b.protocol !== 'sftp'
-  go(b.path || '/')
+  render()
+  go(cwd)
 }
 
 // ---------- Navigation ----------
@@ -186,6 +204,8 @@ async function go(path) {
     const res = await withAuth(() => api.list(b.id, path))
     if (b.id !== current?.id) return
     cwd = path
+    emptyText = null
+    $('upload').disabled = false
     entries = res.entries
     selected = new Set()
     anchor = null
@@ -193,7 +213,12 @@ async function go(path) {
     notice(res.truncated ? `Dossier très volumineux : seules les ${entries.length.toLocaleString('fr-FR')} premières entrées sont affichées.` : '')
     render()
   } catch (e) {
-    if (b.id === current?.id) notice(errMsg(e), true)
+    if (b.id !== current?.id) return
+    notice(errMsg(e), true)
+    if (emptyText) { // échec de la connexion elle-même (pas d'un sous-dossier) : on le dit dans la liste
+      emptyText = `Connexion impossible à ${b.name} : ${errMsg(e)}`
+      render()
+    }
   }
 }
 
@@ -225,7 +250,7 @@ function render() {
     return tr
   }))
   $('empty').hidden = shown.length > 0
-  $('empty').textContent = current ? 'Dossier vide.' : 'Choisir un accès à gauche.'
+  $('empty').textContent = emptyText ?? (current ? 'Dossier vide.' : 'Choisir un accès à gauche.')
   updateButtons()
 }
 
@@ -299,6 +324,7 @@ async function startDownload(items, dest) {
 
 async function startUpload(paths) {
   if (!paths?.length || !current) return
+  if ($('upload').disabled) return notice('Connexion en cours : attendre l\'affichage du dossier avant d\'envoyer.', true)
   if (current.protocol === 's3' && cwd === '/') return notice('Ouvrir un bucket avant d\'envoyer des fichiers.', true)
   const b = current
   notice('Préparation de l\'envoi…')
@@ -340,6 +366,7 @@ api.onTransfers(s => {
   const parts = [`${s.done} terminé(s)`, `${s.running} en cours`, `${s.waiting} en attente`]
   if (s.skipped) parts.push(`${s.skipped} ignoré(s), déjà présents`)
   if (s.errors) parts.push(`${s.errors} erreur(s)`)
+  if (s.running) parts.push(s.eta != null ? `${fmtRate(s.rate)} · fin dans ~${fmtDuration(s.eta)}` : 'estimation en cours…')
   $('stats').textContent = s.total ? parts.join(' · ') : 'Aucun transfert'
   $('retry').hidden = !s.errors
   $('queue').replaceChildren(
@@ -349,7 +376,8 @@ api.onTransfers(s => {
       arrow.textContent = j.dir === 'down' ? '↓' : '↑'
       const name = document.createElement('span')
       name.className = 'name'
-      name.textContent = `${j.name} — ${fmtSize(j.bytes)}${j.size ? ' / ' + fmtSize(j.size) : ''}`
+      const speed = j.rate > 0 ? ` · ${fmtRate(j.rate)}${j.eta != null ? ' · reste ' + fmtDuration(j.eta) : ''}` : ''
+      name.textContent = `${j.name} — ${fmtSize(j.bytes)}${j.size ? ' / ' + fmtSize(j.size) : ''}${speed}`
       const bar = document.createElement('progress')
       bar.max = j.size || 1
       bar.value = j.size ? j.bytes : 0
@@ -408,6 +436,7 @@ function showBookmarks(list) {
   current = kept
   if (removed) { // accès supprimé : on vide la vue
     entries = []
+    emptyText = null
     cwd = '/'
     $('path').value = ''
     for (const id of ['up', 'path', 'refresh', 'upload']) $(id).disabled = true

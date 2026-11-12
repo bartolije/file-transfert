@@ -1,7 +1,7 @@
 {
   "name": "file-transfert",
   "productName": "File Transfert",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Client FTP / SFTP / S3 pour macOS qui reprend les favoris Cyberduck",
   "license": "MIT",
   "private": true,

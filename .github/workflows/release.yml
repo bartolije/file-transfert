@@ -27,6 +27,18 @@ jobs:
       - name: Le tag correspond à package.json
         run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
       - run: npm run app
+      - name: Signature macOS (certificat stable, pour que le Trousseau reconnaisse l'appli d'une version à l'autre)
+        env:
+          MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
+          MACOS_SIGNING_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
+        run: scripts/sign-app.sh "dist/File Transfert-darwin-arm64/File Transfert.app"
+      - name: L'appli signée démarre
+        run: |
+          "dist/File Transfert-darwin-arm64/File Transfert.app/Contents/MacOS/File Transfert" &
+          PID=$!
+          sleep 10
+          kill -0 "$PID"
+          kill "$PID"
       - name: Archive
         run: |
           VERSION="${GITHUB_REF_NAME#v}"

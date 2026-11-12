@@ -3,7 +3,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const crypto = require('node:crypto')
 const { execFile } = require('node:child_process')
-const { CYBERDUCK, readDuckFiles, cleanBookmark, keychainPassword, connect, createQueue } = require('./backends')
+const { CYBERDUCK, readDuckFiles, cleanBookmark, keychainPassword, connect, createQueue, summarize } = require('./backends')
 const { latestUpdate, installUpdate } = require('./update')
 
 // ~/Library/Application Support/File Transfert/
@@ -126,20 +126,13 @@ function notify() {
   if (notifyTimer) return
   notifyTimer = setTimeout(() => {
     notifyTimer = null
-    const count = s => jobs.filter(j => j.status === s).length
-    win?.webContents.send('transfers', {
-      limit: queue.limit, overwrite,
-      total: jobs.length, waiting: count('attente'), running: count('en cours'), done: count('ok'),
-      skipped: jobs.filter(j => j.status.startsWith('ignoré')).length, errors: count('erreur'),
-      active: jobs.filter(j => j.status === 'en cours').map(({ name, bytes, size, dir }) => ({ name, bytes, size, dir })),
-      failed: jobs.filter(j => j.status === 'erreur').slice(-50).map(({ name, error }) => ({ name, error })),
-    })
+    win?.webContents.send('transfers', { limit: queue.limit, overwrite, ...summarize(jobs) })
   }, 250)
 }
 setInterval(() => queue.running && notify(), 500) // progression des octets pendant les gros fichiers
 
 const enqueue = (list, isNew = true) => {
-  for (const j of list) Object.assign(j, { status: 'attente', bytes: 0, error: undefined })
+  for (const j of list) Object.assign(j, { status: 'attente', bytes: 0, error: undefined, history: undefined })
   if (isNew) jobs.push(...list)
   queue.push(...list)
 }

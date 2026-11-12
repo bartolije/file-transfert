@@ -139,3 +139,18 @@ test('lecture d\'un favori Cyberduck (.duck)', { skip: process.platform !== 'dar
   fs.rmSync(dir, { recursive: true, force: true })
   assert.deepStrictEqual({ id: b.id, name: b.name, host: b.host, port: b.port, user: b.user, path: b.path }, { id: 'u-1', name: 'Mon serveur', host: 'sftp.example.com', port: 2222, user: 'moi', path: '/' })
 })
+
+const { trackRate, summarize } = require('./backends')
+
+test('débit glissant et temps restant', () => {
+  const j = { status: 'en cours', name: 'gros.iso', dir: 'up', size: 1000e6, bytes: 0 }
+  for (let t = 0; t <= 20000; t += 500) { j.bytes = t * 10e3; trackRate(j, t) } // 10 Mo/s réguliers pendant 20 s
+  j.bytes = 20500 * 10e3
+  const s = summarize([j, { status: 'attente', size: 300e6, bytes: 0 }, { status: 'ok', size: 5e6, bytes: 5e6 }], 20500)
+  assert.ok(Math.abs(s.active[0].rate - 10e6) < 1e3)
+  assert.ok(Math.abs(s.active[0].eta - 79.5) < 0.1) // (1000 − 205 Mo) / 10 Mo/s
+  assert.ok(Math.abs(s.eta - 109.5) < 0.1) // + 300 Mo en attente
+  assert.deepStrictEqual([s.running, s.waiting, s.done], [1, 1, 1])
+  assert.ok(j.history.length < 25) // la fenêtre de 10 s ne grossit pas indéfiniment
+  assert.strictEqual(summarize([{ status: 'en cours', size: 10, bytes: 0 }], 0).eta, null) // pas d'estimation sans mesure
+})

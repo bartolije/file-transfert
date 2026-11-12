@@ -19,7 +19,7 @@ Client FTP / SFTP / S3 pour macOS (Apple Silicon) qui reprend les favoris Cyberd
 
 - **+** ajoute un accès ; le crayon d'un accès permet de le modifier, le renommer ou le supprimer ; glisser-déposer (ou Alt+↑/↓) change l'ordre.
 - Au premier lancement, les favoris Cyberduck sont importés. **Importer depuis Cyberduck** ajoute ensuite ceux qui manquent, sans toucher aux accès existants. Si macOS refuse l'accès au dossier de Cyberduck, une fenêtre permet de le désigner, ce qui vaut autorisation.
-- Mots de passe : à la première connexion, l'appli lit celui de Cyberduck dans le Trousseau (macOS demande l'autorisation : cliquer **Autoriser**), puis en garde une copie chiffrée. Le chiffrement utilise une clé du Trousseau réservée à l'appli (« File Transfert Safe Storage »). Après chaque mise à jour, macOS redemande une fois l'accès à cette clé : **Toujours autoriser** est alors sans risque, l'autorisation ne valant que pour l'appli.
+- Mots de passe : à la première connexion, l'appli lit celui de Cyberduck dans le Trousseau (macOS demande l'autorisation : cliquer **Autoriser**), puis en garde une copie chiffrée. Le chiffrement utilise une clé du Trousseau réservée à l'appli (« File Transfert Safe Storage »). macOS demande une fois l'accès à cette clé : **Toujours autoriser** est sans risque (l'autorisation ne vaut que pour cette appli, reconnue par son certificat) et reste valable pour les versions suivantes.
 - Ne pas cliquer « Toujours autoriser » sur les demandes de l'outil `security` : elles portent sur les mots de passe de Cyberduck, et l'autorisation vaudrait pour tout script du Mac.
 
 ## Développer

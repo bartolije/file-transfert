@@ -289,4 +289,31 @@ function createQueue(worker, onChange = () => {}) {
   return q
 }
 
-module.exports = { CYBERDUCK, DEFAULT_PORT, readDuckFiles, cleanBookmark, keychainPassword, connect, createQueue, hostKeyStatus, splitS3 }
+// Débit sur une fenêtre glissante : assez stable pour estimer une durée, assez vif pour suivre un changement de réseau.
+// (S3 envoie par blocs de 5 Mo : une fenêtre courte ferait osciller le débit entre deux blocs.)
+function trackRate(j, now = Date.now(), windowMs = 10000) {
+  const h = (j.history ??= [])
+  h.push([now, j.bytes])
+  while (h.length > 2 && now - h[1][0] >= windowMs) h.shift()
+  const [t0, b0] = h[0]
+  return now > t0 ? ((j.bytes - b0) * 1000) / (now - t0) : 0
+}
+
+// État des transferts envoyé à l'interface : compteurs, débit et temps restant (par fichier et global, en secondes).
+function summarize(jobs, now = Date.now()) {
+  const count = s => jobs.filter(j => j.status === s).length
+  const active = jobs.filter(j => j.status === 'en cours').map(j => {
+    const rate = trackRate(j, now)
+    return { name: j.name, bytes: j.bytes, size: j.size, dir: j.dir, rate, eta: rate > 0 && j.size ? Math.max(0, j.size - j.bytes) / rate : null }
+  })
+  const rate = active.reduce((sum, j) => sum + j.rate, 0)
+  const remaining = jobs.reduce((sum, j) => sum + (j.status === 'attente' ? (j.size ?? 0) : j.status === 'en cours' ? Math.max(0, (j.size ?? 0) - j.bytes) : 0), 0)
+  return {
+    total: jobs.length, waiting: count('attente'), running: active.length, done: count('ok'),
+    skipped: jobs.filter(j => j.status.startsWith('ignoré')).length, errors: count('erreur'),
+    active, failed: jobs.filter(j => j.status === 'erreur').slice(-50).map(({ name, error }) => ({ name, error })),
+    rate, eta: rate > 0 && remaining ? remaining / rate : null,
+  }
+}
+
+module.exports = { trackRate, summarize, CYBERDUCK, DEFAULT_PORT, readDuckFiles, cleanBookmark, keychainPassword, connect, createQueue, hostKeyStatus, splitS3 }
