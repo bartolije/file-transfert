@@ -22,8 +22,8 @@ const confirmHostKey = (b, fingerprint) => dialog.showMessageBox(win, {
 
 async function open(id) {
   const b = byId(id)
-  if (!(id in passwords)) passwords[id] = await keychainPassword(b)
-  return connect(b, passwords[id], confirmHostKey)
+  passwords[id] ??= keychainPassword(b) // promesse partagée : une seule demande au Trousseau même si plusieurs connexions s'ouvrent ensemble
+  return connect(b, await passwords[id], confirmHostKey)
 }
 
 const dropBrowse = id => {
