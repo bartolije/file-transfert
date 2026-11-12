@@ -1,9 +1,9 @@
-const { app, BrowserWindow, ipcMain, dialog, safeStorage } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, Menu } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const crypto = require('node:crypto')
 const { execFile } = require('node:child_process')
-const { CYBERDUCK, readDuckFiles, cleanBookmark, keychainPassword, connect, createQueue, summarize } = require('./backends')
+const { CYBERDUCK, readDuckFiles, cleanBookmark, keychainPassword, connect, createQueue, summarize, checkName, splitS3 } = require('./backends')
 const { latestUpdate, installUpdate } = require('./update')
 
 // ~/Library/Application Support/File Transfert/
@@ -106,7 +106,7 @@ async function runJob(j) {
   try {
     await withSession(j.id, async s => {
       const exists = j.dir === 'down' ? fs.existsSync(j.local) : await s.exists(j.remote)
-      if (exists && !overwrite) return (j.status = 'ignoré (existe déjà)')
+      if (exists && !overwrite && !j.force) return (j.status = 'ignoré (existe déjà)') // force : remplacement déjà confirmé dans « Télécharger sous… »
       const onBytes = n => { j.bytes = n }
       if (j.dir === 'down') {
         fs.mkdirSync(path.dirname(j.local), { recursive: true })
@@ -148,12 +148,14 @@ async function walkRemote(s, dir) {
   return out
 }
 
+const walkOf = (s, dir) => (s.walk ? s.walk(dir) : walkRemote(s, dir)) // S3 : liste plate, bien plus rapide
+
 ipcMain.handle('download', (_, id, items, destDir) => withBrowse(id, async s => {
   const root = path.resolve(destDir)
   const list = []
   for (const it of items) {
     const name = path.posix.basename(it.path)
-    const files = it.dir ? (await walkRemote(s, it.path)).map(f => ({ ...f, rel: path.posix.join(name, f.rel) })) : [{ remote: it.path, rel: name, size: it.size }]
+    const files = it.dir ? (await walkOf(s, it.path)).map(f => ({ ...f, rel: path.posix.join(name, f.rel) })) : [{ remote: it.path, rel: name, size: it.size }]
     for (const f of files) {
       const local = path.resolve(root, f.rel)
       // Un nom distant du type « ../../x » ne doit jamais écrire hors du dossier choisi.
@@ -186,6 +188,76 @@ ipcMain.handle('upload', (_, id, localPaths, remoteDir) => withBrowse(id, async 
   enqueue(list)
   return list.length
 }))
+
+// Télécharger sous… : un seul fichier, nom et dossier choisis dans la fenêtre d'enregistrement de macOS.
+ipcMain.handle('downloadAs', async (_, id, item) => {
+  const b = byId(id)
+  const r = await dialog.showSaveDialog(win, { defaultPath: path.join(b.downloadDir, path.posix.basename(item.path)) })
+  if (r.canceled || !r.filePath) return 0
+  enqueue([{ id, dir: 'down', remote: item.path, local: r.filePath, name: path.basename(r.filePath), size: item.size, force: true }])
+  return 1
+})
+
+// ---------- Actions sur les fichiers et dossiers distants ----------
+const notRoot = items => {
+  if (!Array.isArray(items) || !items.length) throw new Error('Aucun élément sélectionné')
+  for (const it of items) if (typeof it.path !== 'string' || !it.path.replace(/\/+$/, '')) throw new Error('Action refusée sur la racine')
+  return items
+}
+
+ipcMain.handle('remote:size', (_, id, items) => withBrowse(id, async s => {
+  let files = 0
+  let bytes = 0
+  for (const it of notRoot(items)) {
+    const list = it.dir ? await walkOf(s, it.path) : [{ size: it.size }]
+    files += list.length
+    bytes += list.reduce((sum, f) => sum + (f.size ?? 0), 0)
+  }
+  return { files, bytes }
+}))
+
+ipcMain.handle('remote:rename', (_, id, from, dir, newName) => withBrowse(id, async s => {
+  const name = checkName(newName)
+  notRoot([{ path: from }])
+  const parent = path.posix.dirname(from.replace(/\/+$/, ''))
+  if ((await s.list(parent)).entries.some(e => e.name === name)) throw new Error(`« ${name} » existe déjà dans ce dossier`)
+  await s.rename(from, path.posix.join(parent, name), dir)
+}))
+
+ipcMain.handle('remote:delete', (_, id, items) => withBrowse(id, async s => {
+  for (const it of notRoot(items)) await s.remove(it.path, it.dir)
+}))
+
+ipcMain.handle('remote:chmod', (_, id, p, mode) => withBrowse(id, s => {
+  if (!s.chmod) throw new Error('Permissions non gérées pour ce protocole')
+  if (!Number.isInteger(mode) || mode < 0 || mode > 0o7777) throw new Error('Mode invalide')
+  notRoot([{ path: p }])
+  return s.chmod(p, mode)
+}))
+
+ipcMain.handle('remote:acl', (_, id, items, acl) => withBrowse(id, async s => {
+  if (!s.setAcl) throw new Error('Accès public : seulement en S3')
+  if (acl !== 'public-read' && acl !== 'private') throw new Error('Accès inconnu')
+  let count = 0
+  let sample = null
+  for (const it of notRoot(items)) {
+    if (!splitS3(it.path).key) throw new Error('Choisir un dossier ou des fichiers dans le bucket, pas le bucket entier')
+    const r = await s.setAcl(it.path, it.dir, acl)
+    count += r.count
+    sample ??= r.sample
+  }
+  return { count, sample }
+}))
+
+// Menu contextuel natif : l'interface envoie les entrées et reçoit l'identifiant choisi (null si fermé sans choix).
+ipcMain.handle('contextMenu', (_, items) => new Promise(resolve => {
+  const toItem = i => (i === '-' ? { type: 'separator' } : { label: String(i.label), enabled: i.enabled !== false, click: () => resolve(i.id) })
+  Menu.buildFromTemplate(items.map(toItem)).popup({ window: win, callback: () => setTimeout(() => resolve(null), 100) })
+}))
+
+ipcMain.handle('confirm', async (_, { message, detail, ok }) => (await dialog.showMessageBox(win, {
+  type: 'warning', buttons: ['Annuler', String(ok)], defaultId: 0, cancelId: 0, message: String(message), detail: String(detail ?? ''),
+})).response === 1)
 
 ipcMain.handle('settings', (_, { limit, overwrite: ow }) => {
   if (Number.isInteger(limit) && limit >= 1 && limit <= 64) queue.limit = limit

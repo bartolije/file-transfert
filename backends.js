@@ -104,6 +104,29 @@ function sshKey(b) {
 const posix = path.posix
 const joinRemote = (dir, name) => posix.join(dir || '/', name)
 
+// « rwxr-xr-x » → 0o755 (s/t comptent comme x, S/T non)
+const modeFromString = str => [...str.slice(0, 9)].reduce((m, ch) => (m << 1) | (ch !== '-' && ch !== 'S' && ch !== 'T' ? 1 : 0), 0)
+
+// Exécute fn sur chaque élément, au plus `limit` à la fois.
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length)
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i], i)
+    }
+  }))
+  return out
+}
+
+// Nouveau nom saisi pour un fichier ou un dossier distant.
+function checkName(name) {
+  const n = typeof name === 'string' ? name.trim() : ''
+  if (!n || n === '.' || n === '..' || n.includes('/') || n.length > 255) throw new Error('Nom invalide (vide, « / », « . » ou « .. » interdits)')
+  return n
+}
+
 async function ftpSession(b, password) {
   const c = new ftp.Client(30000)
   await c.access({ host: b.host, port: b.port, user: b.user || 'anonymous', password: password ?? 'anonymous', secure: b.protocol === 'ftps' })
@@ -116,7 +139,10 @@ async function ftpSession(b, password) {
   return {
     list: p => serial(async () => ({
       entries: (await c.list(p)).filter(e => e.name !== '.' && e.name !== '..')
-        .map(e => ({ name: e.name, dir: e.isDirectory, size: e.isDirectory ? null : e.size, mtime: e.modifiedAt?.getTime() ?? null })),
+        .map(e => ({
+          name: e.name, dir: e.isDirectory, size: e.isDirectory ? null : e.size, mtime: e.modifiedAt?.getTime() ?? null,
+          mode: e.permissions ? (e.permissions.user << 6) | (e.permissions.group << 3) | e.permissions.world : null,
+        })),
       truncated: false,
     })),
     // shortcut: s'appuie sur la commande SIZE ; un serveur qui ne la gère pas fera passer tout fichier pour absent.
@@ -124,6 +150,9 @@ async function ftpSession(b, password) {
     download: (remote, local, onBytes) => withProgress(onBytes, () => c.downloadTo(local, remote)),
     upload: (local, remote, onBytes) => withProgress(onBytes, () => c.uploadFrom(local, remote)),
     mkdir: p => serial(() => c.ensureDir(p)),
+    rename: (from, to) => serial(() => c.rename(from, to)),
+    remove: (p, dir) => serial(() => (dir ? c.removeDir(p) : c.remove(p))),
+    chmod: (p, mode) => serial(() => c.send(`SITE CHMOD ${mode.toString(8)} ${p}`)),
     close: () => c.close(),
   }
 }
@@ -141,7 +170,7 @@ async function sftpSession(b, password, confirmUnknown) {
       const entries = await Promise.all(raw.map(async e => {
         let dir = e.type === 'd'
         if (e.type === 'l') dir = await s.stat(joinRemote(p, e.name)).then(st => st.isDirectory, () => false)
-        return { name: e.name, dir, size: dir ? null : e.size, mtime: e.modifyTime ?? null }
+        return { name: e.name, dir, size: dir ? null : e.size, mtime: e.modifyTime ?? null, mode: e.longname ? modeFromString(e.longname.slice(1)) : null }
       }))
       return { entries, truncated: false }
     },
@@ -149,6 +178,9 @@ async function sftpSession(b, password, confirmUnknown) {
     download: (remote, local, onBytes) => s.fastGet(remote, local, { step: total => onBytes(total) }),
     upload: (local, remote, onBytes) => s.fastPut(local, remote, { step: total => onBytes(total) }),
     mkdir: async p => { if (!(await s.exists(p))) await s.mkdir(p, true) },
+    rename: (from, to) => s.rename(from, to),
+    remove: (p, dir) => (dir ? s.rmdir(p, true) : s.delete(p)),
+    chmod: (p, mode) => s.chmod(p, mode),
     close: () => s.end().catch(() => {}),
   }
 }
@@ -177,6 +209,25 @@ function s3Session(b, secret) {
     }
   })())
   const forBucket = async bucket => ({ c: client(await regionOf(bucket)), region: await regionOf(bucket) })
+  const prefixOf = p => { const k = splitS3(p).key; return k && !k.endsWith('/') ? k + '/' : k }
+  async function keysUnder(p) {
+    const { bucket } = splitS3(p)
+    const { c } = await forBucket(bucket)
+    const out = []
+    let token
+    do {
+      const r = await c.send(new s3.ListObjectsV2Command({ Bucket: bucket, Prefix: prefixOf(p), ContinuationToken: token }))
+      out.push(...(r.Contents ?? []))
+      token = r.IsTruncated ? r.NextContinuationToken : undefined
+    } while (token)
+    return out
+  }
+  async function deleteKeys(c, bucket, keys) {
+    for (let i = 0; i < keys.length; i += 1000) {
+      const r = await c.send(new s3.DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: keys.slice(i, i + 1000).map(Key => ({ Key })), Quiet: true } }))
+      if (r.Errors?.length) throw new Error(`Suppression refusée pour ${r.Errors.length} objet(s) : ${r.Errors[0].Code} ${r.Errors[0].Key}`)
+    }
+  }
 
   return {
     async list(p, limit = Infinity) {
@@ -221,6 +272,46 @@ function s3Session(b, secret) {
       await up.done()
     },
     mkdir: async () => {}, // pas de dossiers en S3 : les préfixes naissent avec les objets
+
+    // Tous les fichiers sous un préfixe, en liste plate (bien plus rapide que dossier par dossier).
+    async walk(dir) {
+      return (await keysUnder(dir)).filter(o => !o.Key.endsWith('/')).map(o => ({ remote: `/${splitS3(dir).bucket}/${o.Key}`, rel: o.Key.slice(prefixOf(dir).length), size: o.Size }))
+    },
+    async rename(from, to, dir) {
+      const { bucket, key } = splitS3(from)
+      const target = splitS3(to).key
+      if (!key) throw new Error('Un bucket ne se renomme pas')
+      const { c } = await forBucket(bucket)
+      const moves = dir ? (await keysUnder(from)).map(o => [o.Key, prefixOf(to) + o.Key.slice(prefixOf(from).length), o.Size]) : [[key, target, null]]
+      const big = moves.find(([, , size]) => size > 5 * 1024 ** 3)
+      // shortcut: CopyObject s'arrête à 5 Go ; au-delà il faudrait une copie multipart (UploadPartCopy).
+      if (big) throw new Error(`Fichier de plus de 5 Go (${big[0]}) : renommage S3 non géré`)
+      await mapLimit(moves, 8, ([src, dst]) => c.send(new s3.CopyObjectCommand({ Bucket: bucket, Key: dst, CopySource: `${bucket}/${src.split('/').map(encodeURIComponent).join('/')}` })))
+      await deleteKeys(c, bucket, moves.map(([src]) => src)) // l'original n'est effacé qu'une fois toutes les copies faites
+      return moves.length
+    },
+    async remove(p, dir) {
+      const { bucket, key } = splitS3(p)
+      if (!key) throw new Error('Un bucket entier ne se supprime pas d\'ici')
+      const { c } = await forBucket(bucket)
+      const keys = dir ? (await keysUnder(p)).map(o => o.Key) : [key]
+      await deleteKeys(c, bucket, keys)
+      return keys.length
+    },
+    // Rend public (lecture anonyme) ou privé chaque objet ; ne touche jamais à la politique du bucket.
+    async setAcl(p, dir, acl) {
+      const { bucket, key } = splitS3(p)
+      const { c } = await forBucket(bucket)
+      const keys = dir || !key ? (await keysUnder(p)).filter(o => !o.Key.endsWith('/')).map(o => o.Key) : [key]
+      try {
+        await mapLimit(keys, 8, k => c.send(new s3.PutObjectAclCommand({ Bucket: bucket, Key: k, ACL: acl })))
+      } catch (e) {
+        if (e.name === 'AccessControlListNotSupported') throw new Error('Les ACL sont désactivées sur ce bucket (propriété des objets « BucketOwnerEnforced ») : seul un changement de politique du bucket pourrait le rendre public, ce que l\'appli ne fait pas')
+        if (e.name === 'AccessDenied' && acl === 'public-read') throw new Error('Refusé par AWS : le blocage de l\'accès public du bucket ou du compte interdit les ACL publiques')
+        throw e
+      }
+      return { count: keys.length, sample: keys[0] ? `/${bucket}/${keys[0]}` : null }
+    },
     close: () => Object.values(clients).forEach(c => c.destroy()),
 
     // Vérifie l'accès public : configuration (blocage, politique, ACL) + test réel sans authentification.
@@ -316,4 +407,4 @@ function summarize(jobs, now = Date.now()) {
   }
 }
 
-module.exports = { trackRate, summarize, CYBERDUCK, DEFAULT_PORT, readDuckFiles, cleanBookmark, keychainPassword, connect, createQueue, hostKeyStatus, splitS3 }
+module.exports = { modeFromString, mapLimit, checkName, trackRate, summarize, CYBERDUCK, DEFAULT_PORT, readDuckFiles, cleanBookmark, keychainPassword, connect, createQueue, hostKeyStatus, splitS3 }

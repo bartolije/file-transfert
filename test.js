@@ -154,3 +154,30 @@ test('débit glissant et temps restant', () => {
   assert.ok(j.history.length < 25) // la fenêtre de 10 s ne grossit pas indéfiniment
   assert.strictEqual(summarize([{ status: 'en cours', size: 10, bytes: 0 }], 0).eta, null) // pas d'estimation sans mesure
 })
+
+const { modeFromString, mapLimit, checkName } = require('./backends')
+
+test('permissions : chaîne → octal', () => {
+  assert.strictEqual(modeFromString('rwxr-xr-x'), 0o755)
+  assert.strictEqual(modeFromString('rw-r--r--'), 0o644)
+  assert.strictEqual(modeFromString('rwsr-x--T'), 0o750)
+})
+
+test('mapLimit : ordre conservé, parallélisme borné', async () => {
+  let live = 0
+  let max = 0
+  const out = await mapLimit([5, 1, 4, 2, 3], 2, async x => {
+    max = Math.max(max, ++live)
+    await new Promise(r => setTimeout(r, x))
+    live--
+    return x * 10
+  })
+  assert.deepStrictEqual(out, [50, 10, 40, 20, 30])
+  assert.strictEqual(max, 2)
+  assert.deepStrictEqual(await mapLimit([], 4, async x => x), [])
+})
+
+test('nouveau nom : refus des noms dangereux', () => {
+  assert.strictEqual(checkName('  rapport final.pdf '), 'rapport final.pdf')
+  for (const bad of ['', '  ', '.', '..', 'a/b', '../x', 'x'.repeat(256)]) assert.throws(() => checkName(bad), /Nom invalide/)
+})
