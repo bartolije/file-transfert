@@ -4,7 +4,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const crypto = require('node:crypto')
-const { execFile } = require('node:child_process')
+const { execFile, execFileSync } = require('node:child_process')
 const ftp = require('basic-ftp')
 const SftpClient = require('ssh2-sftp-client')
 const s3 = require('@aws-sdk/client-s3')
@@ -16,35 +16,43 @@ const CYBERDUCK = path.join(HOME, 'Library/Group Containers/G69SCX94XU.duck/Libr
 const run = (cmd, args) => new Promise((res, rej) => execFile(cmd, args, { maxBuffer: 1 << 24 }, (e, out) => (e ? rej(e) : res(out))))
 const tilde = p => (p ? p.replace(/^~(?=\/|$)/, HOME) : p)
 
-// macOS interdit à une appli de lire le dossier d'une autre (EPERM) : on copie les .duck chez nous.
-// Les sources sont lues dans ce processus, seul à bénéficier d'un choix fait dans la fenêtre de sélection.
-function importBookmarks(sources, dest) {
+const DEFAULT_PORT = { ftp: 21, ftps: 21, sftp: 22, s3: 443 }
+
+// Lit des favoris Cyberduck (.duck). macOS interdit à une appli de lire le dossier d'une autre (EPERM), sauf ce que
+// l'utilisateur désigne dans la fenêtre de sélection : les fichiers sont donc lus ici, puis convertis via stdin.
+function readDuckFiles(sources) {
   const files = sources.flatMap(s => (fs.statSync(s).isDirectory()
     ? fs.readdirSync(s).filter(f => f.endsWith('.duck')).map(f => path.join(s, f))
     : s.endsWith('.duck') ? [s] : []))
   if (!files.length) throw new Error('Aucun fichier .duck dans la sélection')
-  const contents = files.map(f => [path.basename(f), fs.readFileSync(f)])
-  fs.rmSync(dest, { recursive: true, force: true }) // l'import remplace la liste : un favori supprimé dans Cyberduck disparaît
-  fs.mkdirSync(dest, { recursive: true })
-  for (const [name, data] of contents) fs.writeFileSync(path.join(dest, name), data)
-  return files.length
-}
-
-async function loadBookmarks(dir) {
-  const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => f.endsWith('.duck')) : []
-  const list = await Promise.all(files.map(async f => {
-    const d = JSON.parse(await run('plutil', ['-convert', 'json', '-o', '-', path.join(dir, f)]))
+  return files.map(f => {
+    const d = JSON.parse(execFileSync('plutil', ['-convert', 'json', '-o', '-', '-'], { input: fs.readFileSync(f), encoding: 'utf8' }))
     return {
-      id: d.UUID, name: d.Nickname || d.Hostname, protocol: d.Protocol, host: d.Hostname,
-      port: Number(d.Port), user: d.Username || '', path: d.Path || '/',
+      id: d.UUID || crypto.randomUUID(), name: d.Nickname || d.Hostname, protocol: d.Protocol, host: d.Hostname,
+      port: Number(d.Port) || DEFAULT_PORT[d.Protocol], user: d.Username || '', path: d.Path || '/',
       downloadDir: tilde(d['Download Folder']) || path.join(HOME, 'Downloads'),
       keyFile: tilde(d['Private Key File']) || null,
     }
-  }))
-  return list.sort((a, b) => a.name.localeCompare(b.name, 'fr'))
+  }).sort((a, b) => a.name.localeCompare(b.name, 'fr'))
 }
 
-// Mot de passe enregistré par Cyberduck ; macOS demande l'autorisation la première fois (« Toujours autoriser »).
+// Contrôle d'un favori venu de l'interface avant de l'enregistrer.
+function cleanBookmark(b) {
+  const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
+  const out = {
+    name: str(b.name, 100), protocol: b.protocol, host: str(b.host, 255), port: Number(b.port || DEFAULT_PORT[b.protocol]),
+    user: str(b.user, 255), path: str(b.path, 1024) || '/', downloadDir: tilde(str(b.downloadDir, 1024)) || path.join(HOME, 'Downloads'),
+  }
+  if (!out.name) throw new Error('Le nom est obligatoire')
+  if (!(out.protocol in DEFAULT_PORT)) throw new Error('Protocole inconnu')
+  if (!/^[\w.-]+$/.test(out.host)) throw new Error('Serveur invalide (lettres, chiffres, points et tirets)')
+  if (!Number.isInteger(out.port) || out.port < 1 || out.port > 65535) throw new Error('Port invalide')
+  if (!out.path.startsWith('/')) out.path = '/' + out.path
+  if (!path.isAbsolute(out.downloadDir)) throw new Error('Dossier de téléchargement : chemin absolu attendu')
+  return out
+}
+
+// Mot de passe enregistré par Cyberduck (macOS demande l'autorisation) ; l'appli en garde ensuite une copie chiffrée.
 const keychainPassword = b => !b.user ? Promise.resolve(null)
   : run('security', ['find-internet-password', '-s', b.host, '-a', b.user, '-P', String(b.port), '-w']).then(o => o.replace(/\n$/, ''), () => null)
 
@@ -281,4 +289,4 @@ function createQueue(worker, onChange = () => {}) {
   return q
 }
 
-module.exports = { CYBERDUCK, importBookmarks, loadBookmarks, keychainPassword, connect, createQueue, hostKeyStatus, splitS3 }
+module.exports = { CYBERDUCK, DEFAULT_PORT, readDuckFiles, cleanBookmark, keychainPassword, connect, createQueue, hostKeyStatus, splitS3 }

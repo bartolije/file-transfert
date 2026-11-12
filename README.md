@@ -15,10 +15,12 @@ Client FTP / SFTP / S3 pour macOS (Apple Silicon) qui reprend les favoris Cyberd
 2. L'appli n'est pas signée par Apple : au premier lancement, macOS la bloque. Ouvrir **Réglages Système → Confidentialité et sécurité** et cliquer sur **Ouvrir quand même** (une seule fois).
 3. Les mises à jour suivantes s'installent depuis l'appli, sans ce détour.
 
-## Favoris et Trousseau
+## Accès et mots de passe
 
-- Au premier lancement, les favoris Cyberduck sont copiés dans `~/Library/Application Support/File Transfert/Bookmarks`. macOS peut refuser l'accès au dossier de Cyberduck : **Réimporter depuis Cyberduck** ouvre alors une fenêtre où désigner ce dossier, ce qui vaut autorisation.
-- À la première connexion à un favori, macOS demande l'accès au mot de passe. Cliquer **Autoriser**, pas « Toujours autoriser » : la lecture passe par l'outil système `security`, et l'autorisation permanente vaudrait pour tout script du Mac. Le mot de passe reste en mémoire jusqu'à la fermeture de l'appli.
+- **+** ajoute un accès ; le crayon d'un accès permet de le modifier, le renommer ou le supprimer ; glisser-déposer (ou Alt+↑/↓) change l'ordre.
+- Au premier lancement, les favoris Cyberduck sont importés. **Importer depuis Cyberduck** ajoute ensuite ceux qui manquent, sans toucher aux accès existants. Si macOS refuse l'accès au dossier de Cyberduck, une fenêtre permet de le désigner, ce qui vaut autorisation.
+- Mots de passe : à la première connexion, l'appli lit celui de Cyberduck dans le Trousseau (macOS demande l'autorisation : cliquer **Autoriser**), puis en garde une copie chiffrée. Le chiffrement utilise une clé du Trousseau réservée à l'appli (« File Transfert Safe Storage »). Après chaque mise à jour, macOS redemande une fois l'accès à cette clé : **Toujours autoriser** est alors sans risque, l'autorisation ne valant que pour l'appli.
+- Ne pas cliquer « Toujours autoriser » sur les demandes de l'outil `security` : elles portent sur les mots de passe de Cyberduck, et l'autorisation vaudrait pour tout script du Mac.
 
 ## Développer
 

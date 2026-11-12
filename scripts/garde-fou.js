@@ -31,8 +31,14 @@ for (const dir of bookmarkDirs) {
     for (const k of ['Hostname', 'Username', 'Nickname', 'UUID']) local.add(String(d[k] ?? ''))
   }
 }
+// Accès créés ou modifiés dans l'appli (bookmarks.json, versions 0.2+)
+for (const b of tryRun(() => JSON.parse(fs.readFileSync(path.join(home, 'Library/Application Support/File Transfert/bookmarks.json'), 'utf8'))) || []) {
+  bookmarksRead++
+  for (const k of ['host', 'user', 'name', 'id']) local.add(String(b[k] ?? ''))
+}
 for (const m of tryRun(() => fs.readFileSync(path.join(home, '.ssh/config'), 'utf8')).matchAll(/^\s*(?:HostName|User)\s+(\S+)/gim)) local.add(m[1])
-const forbidden = [...local].filter(v => v && v.length >= 4 && !['root', 'admin', 'ubuntu', 'centos', 'File Transfert'].includes(v))
+const publicEndpoint = /^s3([.-][a-z0-9-]+)?\.amazonaws\.com$/ // point d'accès S3 générique (pas un bucket)
+const forbidden = [...local].filter(v => v && v.length >= 4 && !publicEndpoint.test(v) && !['root', 'admin', 'ubuntu', 'centos', 'File Transfert'].includes(v))
 
 // ---------- Motifs génériques ----------
 const allowedEmail = /@(users\.noreply\.github\.com|example\.(com|org|net))$/i
@@ -86,8 +92,9 @@ else {
 }
 
 if (!bookmarksRead) console.warn('garde-fou : favoris Cyberduck illisibles, contrôle des noms d\'hôtes limité aux motifs génériques')
-if (problems.length) {
-  console.error(`\n⛔ garde-fou (${mode}) : ${problems.length} problème(s)\n` + [...new Set(problems)].map(p => `  - ${p}`).join('\n') + '\n')
+const unique = [...new Set(problems)]
+if (unique.length) {
+  console.error(`\n⛔ garde-fou (${mode}) : ${unique.length} problème(s)\n` + unique.map(p => `  - ${p}`).join('\n') + '\n')
   process.exit(1)
 }
 console.log(`✅ garde-fou (${mode}) : aucun secret ni donnée personnelle (${forbidden.length} valeurs locales contrôlées)`)

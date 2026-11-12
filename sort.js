@@ -7,4 +7,11 @@ function sortEntries(entries, { key = 'name', desc = false, foldersFirst = true 
   return [...entries].sort((a, b) => (foldersFirst && a.dir !== b.dir ? (a.dir ? -1 : 1) : desc ? cmp(b, a) : cmp(a, b)))
 }
 
-if (typeof module !== 'undefined') module.exports = { sortEntries }
+// Déplace `fromId` à la place de `toId` : en descendant il passe après la cible, en montant avant.
+function reorder(ids, fromId, toId) {
+  const out = ids.filter(id => id !== fromId)
+  out.splice(ids.indexOf(toId), 0, fromId)
+  return out
+}
+
+if (typeof module !== 'undefined') module.exports = { sortEntries, reorder }

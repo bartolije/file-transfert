@@ -5,7 +5,9 @@ Ne pas ouvrir de ticket public.
 
 ## Ce que fait l'appli de vos identifiants
 
-- Les mots de passe et clés secrètes restent dans le Trousseau macOS ; l'appli les lit à la connexion et ne les garde qu'en mémoire.
+- Les mots de passe sont lus une fois dans le Trousseau (entrées de Cyberduck) ou saisis dans l'appli, puis stockés chiffrés
+  (`safeStorage` d'Electron) dans `~/Library/Application Support/File Transfert/secrets.json`, en accès 600. La clé de
+  chiffrement est dans le Trousseau et réservée à l'appli : un autre programme ne peut pas la lire sans demande macOS.
 - Aucune télémétrie. Les seules connexions sortantes sont vos serveurs (FTP, SFTP, S3) et l'API GitHub pour vérifier les mises à jour.
 - Une mise à jour n'est installée que si son zip est signé par la clé Ed25519 de la CI (clé publique dans `update.js`).
   Chaque zip porte aussi une attestation de provenance GitHub : `gh attestation verify <zip> -R bartolije/file-transfert`.

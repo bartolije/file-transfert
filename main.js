@@ -1,18 +1,56 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, safeStorage } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
+const crypto = require('node:crypto')
 const { execFile } = require('node:child_process')
-const { CYBERDUCK, importBookmarks, loadBookmarks, keychainPassword, connect, createQueue } = require('./backends')
+const { CYBERDUCK, readDuckFiles, cleanBookmark, keychainPassword, connect, createQueue } = require('./backends')
 const { latestUpdate, installUpdate } = require('./update')
 
-const BOOKMARKS = path.join(app.getPath('userData'), 'Bookmarks') // ~/Library/Application Support/File Transfert/Bookmarks
+// ~/Library/Application Support/File Transfert/
+const DATA = app.getPath('userData')
+const STORE = path.join(DATA, 'bookmarks.json') // favoris, dans l'ordre d'affichage
+const SECRETS = path.join(DATA, 'secrets.json') // mots de passe chiffrés par safeStorage (clé du Trousseau réservée à l'appli)
+const OLD_BOOKMARKS = path.join(DATA, 'Bookmarks') // copies .duck des versions 0.1.x
+
+const readJson = (f, fallback) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return fallback } }
+const writeJson = (f, v) => { // écriture atomique : un plantage ne laisse jamais un fichier à moitié écrit
+  fs.mkdirSync(DATA, { recursive: true })
+  fs.writeFileSync(f + '.tmp', JSON.stringify(v, null, 2), { mode: 0o600 })
+  fs.renameSync(f + '.tmp', f)
+}
 
 let win
 let bookmarks = []
-const passwords = {} // mot de passe par favori, gardé en mémoire le temps de la session
+let secrets = readJson(SECRETS, {})
+const passwords = {} // promesse du mot de passe par favori, le temps de la session
 const browse = {} // session dédiée à la navigation, par favori
 const idle = {} // sessions de transfert libres, par favori
 const byId = id => bookmarks.find(b => b.id === id) ?? (() => { throw new Error('Favori inconnu') })()
+const publicList = () => bookmarks.map(b => ({ ...b, hasSecret: b.id in secrets }))
+const saveBookmarks = () => writeJson(STORE, bookmarks)
+
+function saveSecret(id, pwd) {
+  if (!safeStorage.isEncryptionAvailable()) return // garde en mémoire seulement
+  secrets[id] = safeStorage.encryptString(pwd).toString('base64')
+  writeJson(SECRETS, secrets)
+}
+
+// Mot de passe : copie chiffrée de l'appli, sinon Trousseau de Cyberduck (une demande macOS, puis copie chiffrée).
+function secretFor(b) {
+  return (passwords[b.id] ??= (async () => {
+    if (secrets[b.id]) try { return safeStorage.decryptString(Buffer.from(secrets[b.id], 'base64')) } catch {}
+    const pwd = await keychainPassword(b)
+    if (pwd) saveSecret(b.id, pwd)
+    return pwd
+  })())
+}
+
+// Coupe les connexions d'un favori modifié ou supprimé.
+function forget(id) {
+  delete passwords[id]
+  dropBrowse(id)
+  idle[id]?.splice(0).forEach(s => s.close())
+}
 
 const confirmHostKey = (b, fingerprint) => dialog.showMessageBox(win, {
   type: 'warning', buttons: ['Refuser', 'Faire confiance'], defaultId: 0, cancelId: 0,
@@ -22,8 +60,7 @@ const confirmHostKey = (b, fingerprint) => dialog.showMessageBox(win, {
 
 async function open(id) {
   const b = byId(id)
-  passwords[id] ??= keychainPassword(b) // promesse partagée : une seule demande au Trousseau même si plusieurs connexions s'ouvrent ensemble
-  return connect(b, await passwords[id], confirmHostKey)
+  return connect(b, await secretFor(b), confirmHostKey) // promesse partagée : une seule lecture même si plusieurs connexions s'ouvrent ensemble
 }
 
 const dropBrowse = id => {
@@ -170,26 +207,71 @@ ipcMain.handle('clear', () => {
 })
 
 // ---------- Navigation ----------
-ipcMain.handle('bookmarks', async () => {
-  if (!fs.existsSync(BOOKMARKS)) try { importBookmarks([CYBERDUCK], BOOKMARKS) } catch {} // premier lancement ; sinon bouton Réimporter
-  return (bookmarks = await loadBookmarks(BOOKMARKS))
+// ---------- Favoris ----------
+const tryRead = sources => { try { return readDuckFiles(sources) } catch { return null } }
+
+ipcMain.handle('bookmarks', () => {
+  bookmarks = readJson(STORE, null)
+  if (!bookmarks) { // premier lancement : anciennes copies 0.1.x, sinon Cyberduck directement
+    bookmarks = tryRead([OLD_BOOKMARKS]) ?? tryRead([CYBERDUCK]) ?? []
+    saveBookmarks()
+    fs.rmSync(OLD_BOOKMARKS, { recursive: true, force: true })
+  }
+  return publicList()
 })
+
+// Ajoute les favoris Cyberduck absents de la liste, sans toucher à ceux déjà là (renommés, réordonnés…).
 ipcMain.handle('importCyberduck', async () => {
-  try {
-    importBookmarks([CYBERDUCK], BOOKMARKS)
-  } catch {
+  let found = tryRead([CYBERDUCK])
+  if (!found) {
     // Dossier protégé par macOS : le désigner soi-même dans la fenêtre de sélection vaut autorisation.
     const r = await dialog.showOpenDialog(win, {
       defaultPath: CYBERDUCK, buttonLabel: 'Importer', properties: ['openDirectory', 'openFile', 'multiSelections', 'showHiddenFiles'],
       message: 'Sélectionner le dossier « Bookmarks » de Cyberduck (ou des fichiers .duck)',
     })
     if (r.canceled) return null
-    importBookmarks(r.filePaths, BOOKMARKS)
+    found = readDuckFiles(r.filePaths)
   }
-  return (bookmarks = await loadBookmarks(BOOKMARKS))
+  const added = found.filter(f => !bookmarks.some(b => b.id === f.id))
+  bookmarks.push(...added)
+  saveBookmarks()
+  return { list: publicList(), added: added.length }
 })
+
+ipcMain.handle('saveBookmark', (_, input, secret) => {
+  const clean = cleanBookmark(input)
+  let b = bookmarks.find(x => x.id === input.id)
+  if (b) Object.assign(b, clean)
+  else bookmarks.push((b = { id: crypto.randomUUID(), ...clean, keyFile: null }))
+  saveBookmarks()
+  forget(b.id)
+  if (typeof secret === 'string' && secret) saveSecret(b.id, secret)
+  return publicList()
+})
+
+ipcMain.handle('deleteBookmark', (_, id) => {
+  forget(id)
+  bookmarks = bookmarks.filter(b => b.id !== id)
+  delete secrets[id]
+  saveBookmarks()
+  writeJson(SECRETS, secrets)
+  return publicList()
+})
+
+ipcMain.handle('reorderBookmarks', (_, ids) => {
+  if (!Array.isArray(ids) || ids.length !== bookmarks.length || !bookmarks.every(b => ids.includes(b.id))) throw new Error('Ordre invalide')
+  bookmarks = ids.map(byId)
+  saveBookmarks()
+  return publicList()
+})
+
 ipcMain.handle('list', (_, id, p) => withBrowse(id, s => s.list(p, 20000))) // shortcut: affichage limité à ~20 000 entrées par dossier S3, le bandeau le signale
-ipcMain.handle('password', (_, id, pwd) => { passwords[id] = pwd; dropBrowse(id) })
+ipcMain.handle('password', (_, id, pwd) => {
+  if (typeof pwd !== 'string' || !pwd) throw new Error('Mot de passe vide')
+  passwords[id] = Promise.resolve(pwd)
+  saveSecret(id, pwd)
+  dropBrowse(id)
+})
 ipcMain.handle('publicCheck', (_, id, p) => withBrowse(id, s => s.publicCheck(p)))
 ipcMain.handle('pickFolder', async (_, defaultPath) => (await dialog.showOpenDialog(win, { defaultPath, properties: ['openDirectory', 'createDirectory'] })).filePaths[0])
 ipcMain.handle('pickUpload', async () => (await dialog.showOpenDialog(win, { properties: ['openFile', 'openDirectory', 'multiSelections'] })).filePaths)

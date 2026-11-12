@@ -1,4 +1,4 @@
-/* global api, sortEntries */
+/* global api, sortEntries, reorder */
 const $ = id => document.getElementById(id)
 const store = {
   get: k => { try { return JSON.parse(localStorage.getItem(k)) } catch { return null } },
@@ -59,13 +59,18 @@ async function withAuth(f) {
   }
 }
 
-// ---------- Favoris ----------
+// ---------- Accès (favoris) ----------
+let dragId = null
+
 function renderBookmarks() {
   const ul = $('bookmarks')
-  ul.replaceChildren(...bookmarks.map(b => {
+  ul.replaceChildren(...bookmarks.map((b, i) => {
     const li = document.createElement('li')
+    li.draggable = true
     const btn = document.createElement('button')
-    btn.setAttribute('aria-current', String(b === current))
+    btn.className = 'open'
+    btn.title = 'Glisser ou Alt+↑/↓ pour déplacer'
+    btn.setAttribute('aria-current', String(b.id === current?.id))
     const proto = document.createElement('span')
     proto.className = 'proto'
     proto.textContent = b.protocol.toUpperCase()
@@ -73,10 +78,96 @@ function renderBookmarks() {
     small.textContent = b.user ? `${b.user}@${b.host}` : b.host
     btn.append(proto, b.name, small)
     btn.onclick = () => openBookmark(b)
-    li.append(btn)
+    btn.onkeydown = ev => {
+      if (!ev.altKey || (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown')) return
+      ev.preventDefault()
+      const target = bookmarks[i + (ev.key === 'ArrowUp' ? -1 : 1)]
+      if (target) moveBookmark(b.id, target.id, true)
+    }
+    const edit = document.createElement('button')
+    edit.className = 'edit'
+    edit.textContent = '✎'
+    edit.title = 'Modifier, renommer ou supprimer'
+    edit.setAttribute('aria-label', `Modifier ${b.name}`)
+    edit.onclick = () => editBookmark(b)
+    li.ondragstart = ev => { dragId = b.id; ev.dataTransfer.effectAllowed = 'move' }
+    li.ondragend = () => { dragId = null }
+    li.ondragover = ev => { if (dragId && dragId !== b.id) { ev.preventDefault(); li.classList.add('over') } }
+    li.ondragleave = () => li.classList.remove('over')
+    li.ondrop = ev => {
+      ev.preventDefault()
+      li.classList.remove('over')
+      if (dragId && dragId !== b.id) moveBookmark(dragId, b.id)
+    }
+    li.append(btn, edit)
     return li
   }))
 }
+
+async function moveBookmark(fromId, toId, refocus = false) {
+  try {
+    showBookmarks(await api.reorderBookmarks(reorder(bookmarks.map(b => b.id), fromId, toId)))
+    if (refocus) $('bookmarks').children[bookmarks.findIndex(b => b.id === fromId)]?.querySelector('.open')?.focus()
+  } catch (e) {
+    notice(errMsg(e), true)
+  }
+}
+
+// Formulaire d'ajout / modification
+const PORTS = { ftp: 21, ftps: 21, sftp: 22, s3: 443 }
+const form = $('editForm')
+let editing = null
+
+function protocolLabels() {
+  const p = form.protocol.value
+  const port = Number(form.port.value)
+  if (!port || Object.values(PORTS).includes(port)) form.port.value = PORTS[p]
+  if (p === 's3' && !form.host.value) form.host.value = 's3.amazonaws.com'
+  $('userLabel').textContent = p === 's3' ? 'Access Key ID' : 'Utilisateur'
+  $('secretLabel').textContent = p === 's3' ? 'Secret Access Key' : 'Mot de passe'
+}
+form.protocol.onchange = protocolLabels
+
+function editBookmark(b) {
+  editing = b
+  $('editTitle').textContent = b ? `Modifier « ${b.name} »` : 'Nouvel accès'
+  for (const k of ['name', 'host', 'user', 'path', 'downloadDir']) form[k].value = b?.[k] ?? ''
+  form.protocol.value = b?.protocol ?? 'sftp'
+  form.port.value = b?.port ?? ''
+  form.secret.value = ''
+  form.secret.placeholder = b?.hasSecret ? '•••••• enregistré (laisser vide = inchangé)' : 'Vide : repris de Cyberduck ou demandé à la connexion'
+  $('editDelete').hidden = !b
+  $('editError').textContent = ''
+  protocolLabels()
+  $('edit').showModal()
+  form.name.focus()
+}
+
+form.onsubmit = async ev => {
+  if (ev.submitter?.value !== 'ok') return
+  ev.preventDefault()
+  const data = Object.fromEntries(['name', 'protocol', 'host', 'port', 'user', 'path', 'downloadDir'].map(k => [k, form[k].value]))
+  try {
+    const list = await api.saveBookmark({ ...data, id: editing?.id }, form.secret.value)
+    $('edit').close()
+    const wasCurrent = editing && editing.id === current?.id
+    showBookmarks(list)
+    if (wasCurrent) openBookmark(current) // reconnexion avec les nouveaux paramètres
+  } catch (e) {
+    $('editError').textContent = errMsg(e)
+  }
+}
+
+$('editDelete').onclick = async () => {
+  if (!confirm(`Supprimer « ${editing.name} » ?\nLe mot de passe gardé par l'appli est effacé ; Cyberduck n'est pas touché.`)) return
+  try {
+    showBookmarks(await api.deleteBookmark(editing.id))
+    $('edit').close()
+  } catch (e) {
+    $('editError').textContent = errMsg(e)
+  }
+}
+$('add').onclick = () => editBookmark(null)
 
 function openBookmark(b) {
   current = b
@@ -93,7 +184,7 @@ async function go(path) {
   notice(`Connexion à ${b.name}…`)
   try {
     const res = await withAuth(() => api.list(b.id, path))
-    if (b !== current) return
+    if (b.id !== current?.id) return
     cwd = path
     entries = res.entries
     selected = new Set()
@@ -102,7 +193,7 @@ async function go(path) {
     notice(res.truncated ? `Dossier très volumineux : seules les ${entries.length.toLocaleString('fr-FR')} premières entrées sont affichées.` : '')
     render()
   } catch (e) {
-    if (b === current) notice(errMsg(e), true)
+    if (b.id === current?.id) notice(errMsg(e), true)
   }
 }
 
@@ -134,7 +225,7 @@ function render() {
     return tr
   }))
   $('empty').hidden = shown.length > 0
-  $('empty').textContent = current ? 'Dossier vide.' : 'Choisir un favori à gauche.'
+  $('empty').textContent = current ? 'Dossier vide.' : 'Choisir un accès à gauche.'
   updateButtons()
 }
 
@@ -309,15 +400,29 @@ $('check').onclick = async () => {
 }
 
 // ---------- Démarrage ----------
-const showBookmarks = list => {
+function showBookmarks(list) {
   if (!list) return
   bookmarks = list
-  if (current && !list.some(b => b.id === current.id)) current = null
+  const kept = list.find(b => b.id === current?.id) ?? null
+  const removed = current && !kept
+  current = kept
+  if (removed) { // accès supprimé : on vide la vue
+    entries = []
+    cwd = '/'
+    $('path').value = ''
+    for (const id of ['up', 'path', 'refresh', 'upload']) $(id).disabled = true
+    $('check').hidden = $('terminal').hidden = true
+    render()
+  }
   renderBookmarks()
-  render()
-  notice(list.length ? '' : 'Aucun favori : cliquer sur « Réimporter depuis Cyberduck » en bas à gauche.', !list.length)
+  if (!list.length) notice('Aucun accès : « + » pour en créer un, ou « Importer depuis Cyberduck » en bas à gauche.', true)
 }
-$('import').onclick = () => api.importCyberduck().then(showBookmarks, e => notice(errMsg(e), true))
+$('import').onclick = () => api.importCyberduck().then(r => {
+  if (!r) return
+  showBookmarks(r.list)
+  notice(r.added ? `${r.added} accès ajouté(s) depuis Cyberduck.` : 'Aucun nouvel accès dans Cyberduck.')
+}, e => notice(errMsg(e), true))
+render()
 pushSettings()
 api.bookmarks().then(showBookmarks, e => notice(errMsg(e), true))
 

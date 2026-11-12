@@ -108,3 +108,34 @@ test('installation : bundle remplacé si signé, intact sinon', { skip: process.
     fs.rmSync(tmp, { recursive: true, force: true })
   }
 })
+
+const { reorder } = require('./sort')
+const { cleanBookmark, readDuckFiles } = require('./backends')
+
+test('réordonner : vers le bas après la cible, vers le haut avant', () => {
+  assert.deepStrictEqual(reorder(['a', 'b', 'c', 'd'], 'a', 'c'), ['b', 'c', 'a', 'd'])
+  assert.deepStrictEqual(reorder(['a', 'b', 'c', 'd'], 'd', 'b'), ['a', 'd', 'b', 'c'])
+  assert.deepStrictEqual(reorder(['a', 'b'], 'b', 'a'), ['b', 'a'])
+})
+
+test('contrôle d\'un accès saisi', () => {
+  const ok = cleanBookmark({ name: ' Test ', protocol: 's3', host: 's3.amazonaws.com', port: '', user: 'K', path: 'b', downloadDir: '/tmp' })
+  assert.deepStrictEqual(ok, { name: 'Test', protocol: 's3', host: 's3.amazonaws.com', port: 443, user: 'K', path: '/b', downloadDir: '/tmp' })
+  assert.strictEqual(cleanBookmark({ name: 'x', protocol: 'sftp', host: 'h', downloadDir: '' }).port, 22)
+  assert.throws(() => cleanBookmark({ name: '', protocol: 'sftp', host: 'h' }), /nom/)
+  assert.throws(() => cleanBookmark({ name: 'x', protocol: 'smb', host: 'h' }), /Protocole/)
+  assert.throws(() => cleanBookmark({ name: 'x', protocol: 'sftp', host: 'h; rm -rf' }), /Serveur/)
+  assert.throws(() => cleanBookmark({ name: 'x', protocol: 'sftp', host: 'h', port: 70000 }), /Port/)
+  assert.throws(() => cleanBookmark({ name: 'x', protocol: 'sftp', host: 'h', downloadDir: 'relatif' }), /absolu/)
+})
+
+test('lecture d\'un favori Cyberduck (.duck)', { skip: process.platform !== 'darwin' }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-duck-'))
+  execFileSync('plutil', ['-create', 'xml1', path.join(dir, 'a.duck')])
+  for (const [k, v] of [['Protocol', 'sftp'], ['Nickname', 'Mon serveur'], ['Hostname', 'sftp.example.com'], ['Port', '2222'], ['Username', 'moi'], ['UUID', 'u-1']]) {
+    execFileSync('plutil', ['-insert', k, '-string', v, path.join(dir, 'a.duck')])
+  }
+  const [b] = readDuckFiles([dir])
+  fs.rmSync(dir, { recursive: true, force: true })
+  assert.deepStrictEqual({ id: b.id, name: b.name, host: b.host, port: b.port, user: b.user, path: b.path }, { id: 'u-1', name: 'Mon serveur', host: 'sftp.example.com', port: 2222, user: 'moi', path: '/' })
+})
