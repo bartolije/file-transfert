@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2bb673"/>
+      <stop offset="1" stop-color="#0b5d3b"/>
+    </linearGradient>
+    <clipPath id="corps">
+      <ellipse cx="400" cy="725" rx="140" ry="150"/>
+      <circle cx="400" cy="470" r="135"/>
+    </clipPath>
+  </defs>
+
+  <!-- fond macOS -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+
+  <!-- feuilles de jungle discrètes -->
+  <clipPath id="fond"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+  <g fill="#ffffff" opacity="0.08" clip-path="url(#fond)">
+    <ellipse cx="200" cy="230" rx="120" ry="45" transform="rotate(-35 200 230)"/>
+    <ellipse cx="850" cy="860" rx="140" ry="50" transform="rotate(-30 850 860)"/>
+  </g>
+
+  <!-- document porté par la queue -->
+  <g transform="rotate(12 720 270)">
+    <path d="M640 170 h120 l40 40 v150 h-160 z" fill="#ffffff" stroke="#2a1a08" stroke-width="12" stroke-linejoin="round"/>
+    <path d="M760 170 v40 h40" fill="none" stroke="#2a1a08" stroke-width="12" stroke-linejoin="round"/>
+    <g stroke="#9aa3ad" stroke-width="12" stroke-linecap="round">
+      <line x1="668" y1="240" x2="772" y2="240"/>
+      <line x1="668" y1="275" x2="772" y2="275"/>
+      <line x1="668" y1="310" x2="740" y2="310"/>
+    </g>
+  </g>
+
+  <!-- queue : contour, jaune, taches -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path id="queue" d="M500 800 C 640 880, 830 830, 835 640 C 840 480, 760 440, 770 330 C 778 250, 850 215, 880 260 C 905 300, 870 340, 840 320"
+          stroke="#2a1a08" stroke-width="58"/>
+    <path d="M500 800 C 640 880, 830 830, 835 640 C 840 480, 760 440, 770 330 C 778 250, 850 215, 880 260 C 905 300, 870 340, 840 320"
+          stroke="#f7c51e" stroke-width="34"/>
+    <path d="M500 800 C 640 880, 830 830, 835 640 C 840 480, 760 440, 770 330 C 778 250, 850 215, 880 260 C 905 300, 870 340, 840 320"
+          stroke="#1a1208" stroke-width="22" stroke-dasharray="1 66"/>
+  </g>
+
+  <!-- oreilles -->
+  <g fill="#f7c51e" stroke="#2a1a08" stroke-width="12">
+    <circle cx="300" cy="370" r="32"/>
+    <circle cx="500" cy="370" r="32"/>
+  </g>
+
+  <!-- corps et tête -->
+  <g fill="#f7c51e" stroke="#2a1a08" stroke-width="12">
+    <ellipse cx="400" cy="725" rx="140" ry="150"/>
+    <circle cx="400" cy="470" r="135"/>
+  </g>
+
+  <!-- taches -->
+  <g clip-path="url(#corps)" fill="#1a1208">
+    <ellipse cx="300" cy="420" rx="21" ry="16"/>
+    <ellipse cx="498" cy="410" rx="18" ry="14"/>
+    <ellipse cx="350" cy="355" rx="16" ry="12"/>
+    <ellipse cx="470" cy="560" rx="19" ry="14"/>
+    <ellipse cx="300" cy="610" rx="20" ry="15"/>
+    <ellipse cx="500" cy="640" rx="18" ry="14"/>
+    <ellipse cx="290" cy="790" rx="19" ry="15"/>
+    <ellipse cx="510" cy="790" rx="20" ry="15"/>
+    <ellipse cx="400" cy="845" rx="18" ry="13"/>
+  </g>
+
+  <!-- museau -->
+  <ellipse cx="400" cy="530" rx="68" ry="44" fill="#ffe58a" stroke="#2a1a08" stroke-width="10"/>
+  <ellipse cx="400" cy="508" rx="20" ry="16" fill="#1a1208"/>
+  <path d="M370 545 Q400 568 430 545" fill="none" stroke="#2a1a08" stroke-width="9" stroke-linecap="round"/>
+
+  <!-- yeux -->
+  <g stroke="#2a1a08" stroke-width="10">
+    <ellipse cx="355" cy="440" rx="36" ry="46" fill="#ffffff"/>
+    <ellipse cx="445" cy="440" rx="36" ry="46" fill="#ffffff"/>
+  </g>
+  <circle cx="369" cy="430" r="17" fill="#1a1208"/>
+  <circle cx="459" cy="430" r="17" fill="#1a1208"/>
+  <circle cx="375" cy="424" r="6" fill="#ffffff"/>
+  <circle cx="465" cy="424" r="6" fill="#ffffff"/>
+
+  <!-- dossier tenu dans les bras -->
+  <g stroke="#2a1a08" stroke-width="12" stroke-linejoin="round">
+    <path d="M282 650 h75 l20 22 h116 v120 h-211 z" fill="#2f7fd8"/>
+    <path d="M308 612 h112 l30 30 v100 h-142 z" fill="#ffffff"/>
+    <path d="M420 612 v30 h30" fill="none"/>
+    <path d="M268 692 h239 l-12 100 h-215 z" fill="#4c9df0"/>
+  </g>
+
+  <!-- mains -->
+  <g fill="#f7c51e" stroke="#2a1a08" stroke-width="10">
+    <ellipse cx="275" cy="720" rx="30" ry="24"/>
+    <ellipse cx="500" cy="720" rx="30" ry="24"/>
+  </g>
+</svg>

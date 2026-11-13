@@ -1,3 +1,5 @@
+<p align="center"><img src="build/icon.svg" width="128" alt="Logo de File Transfert"></p>
+
 # File Transfert
 
 Client FTP / SFTP / S3 pour macOS (Apple Silicon) qui reprend les favoris Cyberduck et les mots de passe enregistrés dans le Trousseau.
@@ -32,6 +34,7 @@ git config core.hooksPath .githooks   # garde-fou avant chaque commit et push (n
 npm start                             # lancer en développement
 npm test
 npm run app                           # construire dist/File Transfert-darwin-arm64/File Transfert.app
+swift scripts/icone.swift             # régénérer build/icon.icns après une retouche de build/icon.svg
 ```
 
 Publier une version : mettre à jour `version` dans `package.json`, committer, puis pousser le tag `vX.Y.Z`. La CI teste, construit, signe et publie la release.
