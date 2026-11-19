@@ -17,13 +17,13 @@
     "app": "electron-packager . \"File Transfert\" --platform=darwin --arch=arm64 --out=dist --overwrite --icon=build/icon.icns --app-bundle-id=io.github.bartolije.file-transfert --ignore=\"^/(dist|build|scripts|\\.github|\\.githooks|test\\.js)\""
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1167.0",
-    "@aws-sdk/lib-storage": "^3.1167.0",
+    "@aws-sdk/client-s3": "^3.1169.0",
+    "@aws-sdk/lib-storage": "^3.1169.0",
     "basic-ftp": "^6.2.6",
     "ssh2-sftp-client": "^12.1.1"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",
-    "electron": "^45.3.1"
+    "electron": "^45.3.3"
   }
 }
