@@ -8,7 +8,7 @@ Client FTP / SFTP / S3 pour macOS (Apple Silicon) qui reprend les favoris Cyberd
 - **Accès public ?** (S3) : blocage d'accès public, politique, propriété des objets, ACL, puis une requête anonyme réelle qui tranche
 - **Transferts en parallèle** réglables à chaud (1 à 64) ; les fichiers existants sont ignorés sauf si « Écraser » est coché
 - Double-clic sur un fichier : téléchargement dans le dossier du favori (~/Downloads par défaut) ; glisser-déposer depuis le Finder pour envoyer
-- **Clic droit** sur un fichier ou un dossier : télécharger (sous… / vers…), envoyer dans ce dossier, calculer la taille (nombre de fichiers + poids), renommer, supprimer, permissions (SFTP/FTP), rendre public ou privé avec vérification réelle (S3). Clic droit sur un accès : ouvrir, modifier, renommer, supprimer
+- **Clic droit** sur un fichier ou un dossier : télécharger (sous… / vers…), envoyer dans ce dossier, calculer la taille (nombre de fichiers + poids), renommer, supprimer, permissions (SFTP/FTP), rendre public ou privé avec vérification réelle (S3). Clic droit dans la liste : nouveau dossier, envoyer ici, rafraîchir. Clic droit sur un accès : ouvrir, modifier, renommer, supprimer
 - Débit et temps restant des transferts, par fichier et au total
 - SFTP : clé d'hôte vérifiée avec `~/.ssh/known_hosts`, bouton **Terminal SSH**
 - **Mise à jour automatique** depuis les releases GitHub, signées (voir [SECURITY.md](SECURITY.md))

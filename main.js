@@ -224,6 +224,13 @@ ipcMain.handle('remote:rename', (_, id, from, dir, newName) => withBrowse(id, as
   await s.rename(from, path.posix.join(parent, name), dir)
 }))
 
+ipcMain.handle('remote:mkdir', (_, id, parent, newName) => withBrowse(id, async s => {
+  const name = checkName(newName)
+  if ((await s.list(parent)).entries.some(e => e.name === name)) throw new Error(`« ${name} » existe déjà dans ce dossier`)
+  const p = path.posix.join(parent, name)
+  await (s.createFolder ? s.createFolder(p) : s.mkdir(p))
+}))
+
 ipcMain.handle('remote:delete', (_, id, items) => withBrowse(id, async s => {
   for (const it of notRoot(items)) await s.remove(it.path, it.dir)
 }))

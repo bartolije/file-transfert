@@ -181,3 +181,20 @@ test('nouveau nom : refus des noms dangereux', () => {
   assert.strictEqual(checkName('  rapport final.pdf '), 'rapport final.pdf')
   for (const bad of ['', '  ', '.', '..', 'a/b', '../x', 'x'.repeat(256)]) assert.throws(() => checkName(bad), /Nom invalide/)
 })
+
+test('nouveau dossier S3 : objet « clé/ » vide, refus à la racine du bucket', async () => {
+  const s3 = require('@aws-sdk/client-s3')
+  const { connect } = require('./backends')
+  const sent = []
+  const orig = s3.S3Client.prototype.send
+  s3.S3Client.prototype.send = async cmd => (sent.push(cmd), cmd instanceof s3.GetBucketLocationCommand ? { LocationConstraint: 'eu-west-3' } : {})
+  try {
+    const s = await connect({ protocol: 's3', user: 'AK' }, 'secret')
+    await s.createFolder('/mon-bucket/a/Nouveau dossier')
+    const put = sent.find(c => c instanceof s3.PutObjectCommand)
+    assert.deepStrictEqual([put.input.Bucket, put.input.Key, put.input.Body], ['mon-bucket', 'a/Nouveau dossier/', ''])
+    await assert.rejects(s.createFolder('/mon-bucket'), /pas à la racine/)
+  } finally {
+    s3.S3Client.prototype.send = orig
+  }
+})

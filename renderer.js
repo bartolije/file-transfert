@@ -548,9 +548,12 @@ $('drop').addEventListener('contextmenu', async ev => {
       { id: 'check', label: 'Vérifier l\'accès public', enabled: !!one },
     ] : [{ id: 'chmod', label: 'Permissions…', enabled: !!one }]),
     '-',
+    { id: 'mkdir', label: 'Nouveau dossier…', enabled: !bucketList },
+    '-',
     { id: 'delete', label: items.length > 1 ? `Supprimer (${items.length})…` : 'Supprimer…', enabled: !bucketList },
   ] : [
     { id: 'uploadHere', label: 'Envoyer ici…', enabled: !bucketList },
+    { id: 'mkdir', label: 'Nouveau dossier…', enabled: !bucketList },
     { id: 'refresh', label: 'Rafraîchir' },
     { id: 'sizeHere', label: 'Calculer la taille de ce dossier', enabled: cwd !== '/' },
     ...(s3 && !bucketList ? [{ id: 'checkHere', label: 'Vérifier l\'accès public de ce dossier' }] : []),
@@ -572,6 +575,13 @@ $('drop').addEventListener('contextmenu', async ev => {
   if (choice === 'sizeHere') return sizeOf([here], cwd)
   if (choice === 'check') return checkPublic(paths[0].path + (one.dir ? '/' : ''))
   if (choice === 'checkHere') return checkPublic(cwd.replace(/\/?$/, '/'))
+
+  if (choice === 'mkdir') {
+    const name = await askText(`Nouveau dossier dans ${cwd}`, 'Nouveau dossier', 'Créer')
+    if (name == null) return
+    if ((await remoteAction('Création du dossier', () => api.remoteMkdir(b.id, cwd, name))) !== undefined) go(cwd)
+    return
+  }
 
   if (choice === 'rename') {
     const name = await askText(`Nouveau nom pour « ${one.name} »`, one.name, 'Renommer')

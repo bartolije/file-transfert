@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('api', {
   remoteSize: call('remote:size'),
   remoteRename: call('remote:rename'),
   remoteDelete: call('remote:delete'),
+  remoteMkdir: call('remote:mkdir'),
   remoteChmod: call('remote:chmod'),
   remoteAcl: call('remote:acl'),
   onTransfers: cb => ipcRenderer.on('transfers', (_, s) => cb(s)),

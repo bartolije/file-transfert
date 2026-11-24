@@ -272,6 +272,13 @@ function s3Session(b, secret) {
       await up.done()
     },
     mkdir: async () => {}, // pas de dossiers en S3 : les préfixes naissent avec les objets
+    // Dossier vide demandé explicitement : objet « clé/ » de taille nulle, comme Cyberduck et la console AWS.
+    async createFolder(p) {
+      const { bucket, key } = splitS3(p)
+      if (!key) throw new Error('Un dossier se crée dans un bucket, pas à la racine')
+      const { c } = await forBucket(bucket)
+      await c.send(new s3.PutObjectCommand({ Bucket: bucket, Key: prefixOf(p), Body: '' }))
+    },
 
     // Tous les fichiers sous un préfixe, en liste plate (bien plus rapide que dossier par dossier).
     async walk(dir) {
